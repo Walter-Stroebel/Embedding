@@ -6,10 +6,14 @@ import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.EventQueue;
 import java.awt.Graphics;
+import java.awt.Point;
+import java.awt.Rectangle;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -19,18 +23,24 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.swing.AbstractAction;
+import javax.swing.Box;
+import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
 import javax.swing.JToolBar;
+import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
 import nl.infcomtec.jllama.AvailableModels;
 import nl.infcomtec.jllama.Embeddings;
 import nl.infcomtec.jllama.Ollama;
@@ -49,6 +59,12 @@ public class Embedding {
     private OllamaEmbeddings client;
     private final JPanel center;
     private final LinkedList<BufferedImage> embs = new LinkedList<>();
+    private final LinkedList<String> jTxt = new LinkedList<>();
+    private final LinkedList<Rectangle> clks = new LinkedList<>();
+    private final JLabel lLabel;
+    private final JScrollPane lPane;
+    private final JLabel rLabel;
+    private final JScrollPane rPane;
 
     public Embedding() {
         frame = new JFrame("Ollama embeddings");
@@ -63,22 +79,29 @@ public class Embedding {
         center = new JPanel() {
             @Override
             public void paint(Graphics g) {
-                super.paint(g);
+                clks.clear();
+                int dw = getWidth();
+                int dh = getHeight();
+                g.setColor(Color.BLACK);
+                g.fillRect(0, 0, dw - 1, dh - 1);
                 int x = 0;
                 int y = 0;
                 for (BufferedImage bi : embs) {
+                    int iw = bi.getWidth();
+                    int ih = bi.getHeight();
                     g.drawImage(bi, x, y, null);
-                    x += bi.getWidth();
-                    if (x > getWidth() - bi.getWidth()) {
+                    clks.add(new Rectangle(x, y, iw, ih));
+                    x += iw;
+                    if (x > dw - iw) {
                         x = 0;
-                        y += bi.getHeight();
-                        if (y > getHeight() - bi.getHeight()) {
+                        y += ih;
+                        if (y > dh - ih) {
                             break;
                         }
                     }
                 }
             }
-            private final Dimension DIM = new Dimension(3480, 2160);
+            private final Dimension DIM = new Dimension(3480, 1080);
 
             @Override
             public Dimension getMinimumSize() {
@@ -95,7 +118,44 @@ public class Embedding {
                 return DIM;
             }
         };
-        cont.add(center, BorderLayout.CENTER);
+        center.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                Point p = e.getPoint();
+                for (int i = 0; i < clks.size(); i++) {
+                    if (clks.get(i).contains(p)) {
+                        if (SwingUtilities.isLeftMouseButton(e)) {
+                            lLabel.setIcon(new ImageIcon(embs.get(i).getScaledInstance(320, 320, BufferedImage.SCALE_DEFAULT)));
+                            lPane.setViewportView(new JTextArea(jTxt.get(i)));
+                        } else {
+                            rLabel.setIcon(new ImageIcon(embs.get(i).getScaledInstance(320, 320, BufferedImage.SCALE_DEFAULT)));
+                            rPane.setViewportView(new JTextArea(jTxt.get(i)));
+                        }
+                        frame.repaint();
+                        break;
+                    }
+                }
+            }
+        });
+        cont.add(center, BorderLayout.SOUTH);
+        Box hor = Box.createHorizontalBox();
+        BufferedImage b = new BufferedImage(320, 320, BufferedImage.TYPE_BYTE_BINARY);
+        ImageIcon bi = new ImageIcon(b);
+        {
+            Box ver = Box.createVerticalBox();
+            ver.add(new JLabel("Left-click"));
+            ver.add(lLabel = new JLabel(bi));
+            ver.add(lPane = new JScrollPane());
+            hor.add(ver);
+        }
+        {
+            Box ver = Box.createVerticalBox();
+            ver.add(new JLabel("Right-click"));
+            ver.add(rLabel = new JLabel(bi));
+            ver.add(rPane = new JScrollPane());
+            hor.add(ver);
+        }
+        cont.add(hor, BorderLayout.CENTER);
         frame.pack();
         if (EventQueue.isDispatchThread()) {
             finishInit();
@@ -164,49 +224,71 @@ public class Embedding {
                 JFileChooser jfc = new JFileChooser();
                 jfc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
                 int ans = jfc.showOpenDialog(frame);
-                if (ans == JFileChooser.APPROVE_OPTION) {
-                    try {
-                        OllamaEmbeddings em = new OllamaEmbeddings(
-                                hosts.getSelectedItem().toString(),
-                                models.getSelectedItem().toString());
-                        embs.clear();
-                        final AtomicReference<BufferedImage> blank = new AtomicReference<>(null);
-                        Files.walkFileTree(jfc.getSelectedFile().toPath(), new SimpleFileVisitor<>() {
-                            @Override
-                            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                                if (file.toString().endsWith(".java")) {
-                                    String content = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
-                                    for (int ofs = 0; ofs < content.length() - 512; ofs += 256) {
-                                        try {
-                                            String frag = content.substring(ofs, ofs + 512);
-                                            System.out.println(frag);
-                                            Embeddings embeddings = em.getEmbeddings(frag);
-                                            if (null == blank.get()) {
-                                                // create a separator now we know its size
-                                                int w = (int) Math.round(Math.sqrt(embeddings.response.embedding.length));
-                                                int h = embeddings.response.embedding.length / w;
-                                                if (w * h < embeddings.response.embedding.length) {
-                                                    h++;
+                SwingWorker<Void, BufferedImage> worker = new SwingWorker<>() {
+                    @Override
+                    protected Void doInBackground() throws Exception {
+                        if (ans == JFileChooser.APPROVE_OPTION) {
+                            try {
+                                OllamaEmbeddings em = new OllamaEmbeddings(
+                                        hosts.getSelectedItem().toString(),
+                                        models.getSelectedItem().toString());
+                                embs.clear();
+                                jTxt.clear();
+                                final BufferedImage blank = new BufferedImage(20, 20, BufferedImage.TYPE_BYTE_BINARY);
+
+                                Files.walkFileTree(jfc.getSelectedFile().toPath(), new SimpleFileVisitor<>() {
+                                    @Override
+                                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                                        if (file.toString().endsWith(".java")) {
+                                            String content = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+                                            if (content.length() > 1024) {
+                                                for (int ofs = 0; ofs < content.length() - 512; ofs += 256) {
+                                                    String frag = content.substring(ofs, ofs + 512);
+                                                    System.out.println(frag);
+                                                    strToImg(em, frag);
                                                 }
-                                                blank.set(new BufferedImage(w, h, BufferedImage.TYPE_BYTE_GRAY));
+                                            } else {
+                                                System.out.println(content);
+                                                strToImg(em, content);
                                             }
-                                            embs.add(toImage(embeddings));
-                                            frame.repaint();
+                                            // separator
+                                            publish(blank);
+                                        }
+                                        return super.visitFile(file, attrs);
+                                    }
+
+                                    private void strToImg(OllamaEmbeddings em, String frag) {
+                                        try {
+                                            Embeddings embeddings = em.getEmbeddings(frag);
+                                            BufferedImage img = toImage(embeddings);
+                                            embs.add(img);
+                                            jTxt.add(frag);
+                                            publish(img);
                                         } catch (Exception ex) {
                                             Logger.getLogger(Embedding.class.getName()).log(Level.SEVERE, null, ex);
                                         }
                                     }
-                                    // separator
-                                    embs.add(blank.get());
-                                    frame.repaint();
-                                }
-                                return super.visitFile(file, attrs);
+                                });
+                            } catch (IOException ex) {
+                                Logger.getLogger(Embedding.class.getName()).log(Level.SEVERE, null, ex);
                             }
-                        });
-                    } catch (IOException ex) {
-                        Logger.getLogger(Embedding.class.getName()).log(Level.SEVERE, null, ex);
+                        }
+                        return null;
                     }
-                }
+
+                    @Override
+                    protected void process(List<BufferedImage> chunks) {
+                        frame.repaint();
+                    }
+
+                    @Override
+                    protected void done() {
+                        // Final updates or cleanup after background work is done.
+                    }
+                };
+
+                worker.execute();
+
             }
         }));
     }
