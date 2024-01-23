@@ -63,3 +63,10 @@ By visualizing embeddings from different texts or models, we can compare and con
 ## Conclusion
 
 This innovative approach could offer a new dimension in understanding and analyzing LLM embeddings. By tapping into our visual processing capabilities, we might unlock new perspectives in the interpretability and functionality of these complex models.
+
+## About the source
+
+The main class is here (Embeddings.java).
+You will also have to install Ollama [https://github.com/jmorganca/ollama](https://github.com/jmorganca/ollama) and my Jllama project [https://github.com/Walter-Stroebel/Jllama](https://github.com/Walter-Stroebel/Jllama).
+
+Obviously you will also need a Java 11 or better JDK like OpenJDK.
