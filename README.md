@@ -1,5 +1,16 @@
 # Embedding: Study how a LLM (Large Language Model) works via its embeddings
 
+## 2024-01-23: update
+
+I have added a "txt2vid" button, this is
+somewhat beta/POC level but you can enter
+some text and it will generate an MP4 with a frame per
+character. You will need to have ffmpeg installed for
+this to work (apt install ffmpeg, yum install ffmpeg).
+Generation runs in the background, you should get pop-up
+messages about the task progressing.
+It will take a few minutes depending on the input size.
+
 ## Introduction
 
 It is possible to get a dump of the hyper-dimensional "brain" of an LLM. As of this document, OpenAI offers that via the API and for Ollama likewise features an "/api/embeddings" endpoint.
